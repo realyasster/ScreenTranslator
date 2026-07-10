@@ -9,43 +9,24 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
+  linux:
+    name: Build (Linux)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            qtbase5-dev qttools5-dev-tools qtwebengine5-dev \
+            qtbase5-dev qttools5-dev-tools qtwebengine5-dev libqt5x11extras5-dev \
             libtesseract-dev libleptonica-dev libhunspell-dev \
             libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0 libxcb-cursor-dev \
             libxcb-keysyms1-dev libxcb-shape0-dev libxcb-shm0-dev \
             libxcb-randr0-dev libxcb-render0-dev libxcb-render-util0-dev \
             libxcb-icccm4-dev libxcb-image0-dev libxcb-util1 libxcb-util-dev
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Cache Qt / native deps
-        uses: actions/cache@v4
-        with:
-          path: deps
-          key: ${{ runner.os }}-${{ hashFiles('./share/ci/get_qt.py', './share/ci/get_leptonica.py', './share/ci/get_tesseract.py', './share/ci/get_hunspell.py') }}
-          restore-keys: |
-            ${{ runner.os }}-
-
-      - name: Generate resources
-        if: runner.os == 'Linux'
+      - name: Compile translations
         run: |
           mkdir -p share/translations
           [ -f share/translations/screentranslator_ru.ts ] || touch share/translations/screentranslator_ru.ts
@@ -53,45 +34,92 @@ jobs:
           lrelease share/translations/screentranslator_ru.ts -qm share/translations/screentranslator_ru.qm
           lrelease share/translations/screentranslator_he.ts -qm share/translations/screentranslator_he.qm
 
-      - name: Build (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
+      - name: Build
         run: |
           qmake screen-translator.pro
           make -j$(nproc)
 
-      - name: Build (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          python ./share/ci/get_qt.py
-          python ./share/ci/get_qt_ssl.py
-          python ./share/ci/get_leptonica.py
-          python ./share/ci/get_tesseract.py
-          python ./share/ci/get_hunspell.py
-          python ./share/ci/build.py
-          python ./share/ci/windeploy.py
-          artifact=$(python ./share/ci/windeploy.py artifact_name)
-          echo "ARTIFACT=${artifact}" >> $GITHUB_ENV
-
       - name: Upload Linux binary
-        if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: screen-translator-linux
           path: screen-translator
 
+  windows:
+    name: Build (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Qt via aqtinstall
+        shell: bash
+        run: |
+          pip install aqtinstall
+          mkdir -p C:\Qt
+          python -m aqt install-qt windows desktop 5.15.2 win64_msvc2019_64 -O C:/Qt -m qtwebengine qt5compat qtwebsockets qtwebchannel
+          python -m aqt install-tool windows desktop tools_vcredist
+
+      - name: Install vcpkg dependencies
+        shell: bash
+        run: |
+          git clone https://github.com/microsoft/vcpkg C:/vcpkg
+          C:/vcpkg/bootstrap-vcpkg.bat
+          C:/vcpkg/vcpkg.exe install tesseract:x64-windows leptonica:x64-windows hunspell:x64-windows
+
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build
+        shell: cmd
+        run: |
+          set QTDIR=C:\Qt\5.15.2\msvc2019_64
+          set PATH=%QTDIR%\bin;%PATH%
+          qmake screen-translator.pro
+          nmake /S /E
+
+      - name: Deploy Qt dependencies
+        shell: cmd
+        run: |
+          set QTDIR=C:\Qt\5.15.2\msvc2019_64
+          set PATH=%QTDIR%\bin;%PATH%
+          windeployqt --release screen-translator.exe
+
+      - name: Copy runtime DLLs (Tesseract, Hunspell)
+        shell: bash
+        run: |
+          cp /c/vcpkg/installed/x64-windows/bin/*.dll . || true
+          cp /c/vcpkg/installed/x64-windows/bin/tessdata ../tessdata 2>/dev/null || true
+
+      - name: Package Windows artifact
+        shell: bash
+        run: |
+          mkdir -p screen-translator-windows/translators
+          cp -r share/translations screen-translator-windows/ 2>/dev/null || true
+          mkdir -p screen-translator-windows/tessdata
+          cp -r assets/tessdata/*.traineddata screen-translator-windows/tessdata/ 2>/dev/null || true
+          cp translators/*.js screen-translator-windows/translators/ 2>/dev/null || true
+          cp screen-translator.exe screen-translator-windows/
+          [ -f LICENSE.md ] && cp LICENSE.md screen-translator-windows/
+          [ -f README.md ] && cp README.md screen-translator-windows/
+          7z a screen-translator-windows.zip screen-translator-windows/
+
       - name: Upload Windows artifact
-        if: runner.os == 'Windows' && env.ARTIFACT != ''
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ARTIFACT }}
-          path: ${{ env.ARTIFACT }}
+          name: screen-translator-windows
+          path: screen-translator-windows.zip
 
   release:
     name: Publish release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [linux, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
