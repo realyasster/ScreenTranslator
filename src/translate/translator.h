@@ -9,11 +9,12 @@
 #include <memory>
 #include <vector>
 
-class QWebEngineView;
 class QTabWidget;
 
 class ITranslatorBackend;
+#ifdef ST_HAS_WEBENGINE
 class WebTranslatorBackend;
+#endif
 
 class Translator : public QWidget
 {
@@ -43,23 +44,29 @@ private:
   };
 
   ITranslatorBackend *findBackend(const QString &name);
+#ifdef ST_HAS_WEBENGINE
   std::unique_ptr<WebTranslatorBackend>
   createWebBackend(const QString &scriptName, const QString &scriptText);
+  void createWebTab(WebTranslatorBackend *backend);
+  void showDebugView();
+#else
+  void showDebugView() {}
+#endif
   void rebuildBackends();
   void processQueue();
   void markTranslated(const TaskPtr &task);
-  void createWebTab(WebTranslatorBackend *backend);
   void createLogTab(ITranslatorBackend *backend);
   void setBusyTab(ITranslatorBackend *backend);
-  void showDebugView();
 
   Manager &manager_;
   const Settings &settings_;
+#ifdef ST_HAS_WEBENGINE
   std::unique_ptr<QWebEngineView> debugView_;
+  quint16 debugPort_{0};
+#endif
   QAction *showDebugAction_;
   QTabWidget *tabs_;
   std::vector<TaskPtr> queue_;
   std::map<QString, std::unique_ptr<ITranslatorBackend>> backends_;
   std::map<QString, Tab> tabsByName_;
-  quint16 debugPort_{0};
 };
