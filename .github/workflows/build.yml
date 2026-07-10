@@ -61,7 +61,7 @@ jobs:
         run: |
           pip install aqtinstall
           mkdir -p C:\Qt
-          python -m aqt install-qt windows desktop 5.15.2 win64_msvc2019_64 -O C:/Qt -m qtwebengine
+          python -m aqt install-qt windows desktop 5.15.17 win64_msvc2019_64 -O C:/Qt -m qtwebengine
           python -m aqt install-tool windows desktop tools_vcredist
 
       - name: Install vcpkg dependencies
@@ -79,7 +79,7 @@ jobs:
       - name: Build
         shell: cmd
         run: |
-          set QTDIR=C:\Qt\5.15.2\msvc2019_64
+          set QTDIR=C:\Qt\5.15.17\msvc2019_64
           set PATH=%QTDIR%\bin;%PATH%
           qmake screen-translator.pro
           nmake /S /E
