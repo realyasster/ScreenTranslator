@@ -61,7 +61,7 @@ jobs:
         run: |
           pip install aqtinstall
           mkdir -p C:\Qt
-          python -m aqt install-qt windows desktop 5.15.2 win64_msvc2019_64 -O C:/Qt -m qtwebengine qt5compat qtwebsockets qtwebchannel
+          python -m aqt install-qt windows desktop 5.15.2 win64_msvc2019_64 -O C:/Qt -m qtwebengine qtwebsockets qtwebchannel
           python -m aqt install-tool windows desktop tools_vcredist
 
       - name: Install vcpkg dependencies
