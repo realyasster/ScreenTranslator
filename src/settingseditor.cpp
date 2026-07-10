@@ -2,6 +2,7 @@
 #include "debug.h"
 #include "languagecodes.h"
 #include "manager.h"
+#include "ollamabackend.h"
 #include "runatsystemstart.h"
 #include "settingsvalidator.h"
 #include "ui_settingseditor.h"
@@ -9,7 +10,14 @@
 #include "widgetstate.h"
 
 #include <QColorDialog>
+#include <QGroupBox>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QSpinBox>
 #include <QStandardItemModel>
+#include <QVBoxLayout>
 
 namespace
 {
@@ -136,6 +144,8 @@ SettingsEditor::SettingsEditor(Manager &manager, update::Updater &updater)
          "visible. You can make it using the \"Show translator\" entry "
          "in the tray icon's context menu</b>"));
   ui->translateLangCombo->setModel(models_.targetLanguageModel());
+
+  setupAiTranslation();
 
   // representation
   ui->fontColor->setAutoFillBackground(true);
@@ -273,6 +283,19 @@ Settings SettingsEditor::settings() const
       LanguageCodes::idForName(ui->translateLangCombo->currentText());
   settings.translators = enabledTranslators();
 
+  if (ollamaUrlEdit_)
+    settings.ollamaUrl = ollamaUrlEdit_->text();
+  if (ollamaModelCombo_)
+    settings.ollamaModel = ollamaModelCombo_->currentText();
+  if (openaiEndpointEdit_)
+    settings.openaiEndpoint = openaiEndpointEdit_->text();
+  if (openaiModelEdit_)
+    settings.openaiModel = openaiModelEdit_->text();
+  if (openaiKeyEdit_)
+    settings.openaiKey = openaiKeyEdit_->text();
+  if (openaiSaveKeyCheck_)
+    settings.openaiSaveKey = openaiSaveKeyCheck_->isChecked();
+
   settings.resultShowType =
       ui->trayRadio->isChecked() ? ResultMode::Tooltip : ResultMode::Widget;
   settings.fontFamily = ui->resultFont->currentFont().family();
@@ -331,6 +354,22 @@ void SettingsEditor::setSettings(const Settings &settings)
   ui->translateLangCombo->setCurrentText(
       LanguageCodes::name(settings.targetLanguage));
   updateTranslators(settings.translators);
+
+  if (ollamaUrlEdit_)
+    ollamaUrlEdit_->setText(settings.ollamaUrl);
+  if (ollamaModelCombo_) {
+    ollamaModelCombo_->clear();
+    ollamaModelCombo_->addItem(settings.ollamaModel);
+    ollamaModelCombo_->setCurrentText(settings.ollamaModel);
+  }
+  if (openaiEndpointEdit_)
+    openaiEndpointEdit_->setText(settings.openaiEndpoint);
+  if (openaiModelEdit_)
+    openaiModelEdit_->setText(settings.openaiModel);
+  if (openaiKeyEdit_)
+    openaiKeyEdit_->setText(settings.openaiKey);
+  if (openaiSaveKeyCheck_)
+    openaiSaveKeyCheck_->setChecked(settings.openaiSaveKey);
 
   ui->trayRadio->setChecked(settings.resultShowType == ResultMode::Tooltip);
   ui->dialogRadio->setChecked(settings.resultShowType == ResultMode::Widget);
@@ -530,5 +569,116 @@ void SettingsEditor::validateSettings()
 
     const auto error = pageModel_->index(row, int(PageColumn::Error));
     pageModel_->setData(error, it.value().join('\n'));
+  }
+}
+
+void SettingsEditor::setupAiTranslation()
+{
+  auto *layout = qobject_cast<QGridLayout *>(ui->pageTranslate->layout());
+  SOFT_ASSERT(layout, return );
+
+  auto *aiGroup = new QGroupBox(tr("AI Translation"), ui->pageTranslate);
+  auto *aiLayout = new QGridLayout(aiGroup);
+
+  auto *ollamaBox = new QGroupBox(tr("Ollama (local)"), aiGroup);
+  auto *ollamaLayout = new QGridLayout(ollamaBox);
+
+  ollamaUrlEdit_ = new QLineEdit(ollamaBox);
+  ollamaUrlEdit_->setPlaceholderText(QStringLiteral("http://localhost:11434"));
+  ollamaModelCombo_ = new QComboBox(ollamaBox);
+  ollamaModelCombo_->setEditable(true);
+  ollamaRefreshBtn_ = new QPushButton(tr("Refresh"), ollamaBox);
+
+  ollamaLayout->addWidget(new QLabel(tr("URL:"), ollamaBox), 0, 0);
+  ollamaLayout->addWidget(ollamaUrlEdit_, 0, 1);
+  ollamaLayout->addWidget(new QLabel(tr("Model:"), ollamaBox), 1, 0);
+  ollamaLayout->addWidget(ollamaModelCombo_, 1, 1);
+  ollamaLayout->addWidget(ollamaRefreshBtn_, 1, 2);
+  ollamaLayout->addWidget(
+      new QLabel(tr("Add to enabled translators:"), ollamaBox), 2, 0, 1, 2);
+  auto *ollamaAddBtn = new QPushButton(tr("Add"), ollamaBox);
+  ollamaLayout->addWidget(ollamaAddBtn, 2, 2);
+
+  auto *openaiBox = new QGroupBox(tr("OpenAI compatible"), aiGroup);
+  auto *openaiLayout = new QGridLayout(openaiBox);
+
+  openaiEndpointEdit_ = new QLineEdit(openaiBox);
+  openaiEndpointEdit_->setPlaceholderText(
+      QStringLiteral("https://api.openai.com"));
+  openaiModelEdit_ = new QLineEdit(openaiBox);
+  openaiKeyEdit_ = new QLineEdit(openaiBox);
+  openaiKeyEdit_->setEchoMode(QLineEdit::PasswordEchoOnEdit);
+  openaiSaveKeyCheck_ = new QCheckBox(tr("Save key"), openaiBox);
+  openaiAddBtn_ = new QPushButton(tr("Add"), openaiBox);
+
+  openaiLayout->addWidget(new QLabel(tr("Endpoint:"), openaiBox), 0, 0);
+  openaiLayout->addWidget(openaiEndpointEdit_, 0, 1, 1, 2);
+  openaiLayout->addWidget(new QLabel(tr("Model:"), openaiBox), 1, 0);
+  openaiLayout->addWidget(openaiModelEdit_, 1, 1, 1, 2);
+  openaiLayout->addWidget(new QLabel(tr("API key:"), openaiBox), 2, 0);
+  openaiLayout->addWidget(openaiKeyEdit_, 2, 1);
+  openaiLayout->addWidget(openaiSaveKeyCheck_, 2, 2);
+  openaiLayout->addWidget(
+      new QLabel(tr("Add to enabled translators:"), openaiBox), 3, 0, 1, 2);
+  openaiLayout->addWidget(openaiAddBtn_, 3, 2);
+
+  aiLayout->addWidget(ollamaBox, 0, 0);
+  aiLayout->addWidget(openaiBox, 0, 1);
+
+  layout->addWidget(aiGroup, 9, 0, 1, 3);
+
+  connect(ollamaRefreshBtn_, &QPushButton::clicked, this,
+          &SettingsEditor::refreshOllamaModels);
+  connect(ollamaAddBtn, &QPushButton::clicked, this, [this]() {
+    auto model = ollamaModelCombo_->currentText().trimmed();
+    if (model.isEmpty())
+      return;
+    addOllamaToList(model);
+  });
+  connect(openaiAddBtn_, &QPushButton::clicked, this, [this]() {
+    auto model = openaiModelEdit_->text().trimmed();
+    if (model.isEmpty())
+      return;
+    addOpenAIToList(model);
+  });
+}
+
+void SettingsEditor::refreshOllamaModels()
+{
+  const auto url = ollamaUrlEdit_->text().trimmed().isEmpty()
+                       ? QStringLiteral("http://localhost:11434")
+                       : ollamaUrlEdit_->text().trimmed();
+  ollamaUrlEdit_->setText(url);
+
+  ollamaRefreshBtn_->setEnabled(false);
+  ollamaRefreshBtn_->setText(tr("Loading..."));
+
+  const auto models = OllamaBackend::discoverModels(url);
+
+  ollamaRefreshBtn_->setEnabled(true);
+  ollamaRefreshBtn_->setText(tr("Refresh"));
+
+  const auto current = ollamaModelCombo_->currentText();
+  ollamaModelCombo_->clear();
+  ollamaModelCombo_->addItems(models);
+  if (!current.isEmpty() && models.contains(current))
+    ollamaModelCombo_->setCurrentText(current);
+}
+
+void SettingsEditor::addOllamaToList(const QString &model)
+{
+  const auto spec = QStringLiteral("ollama:") + model;
+  if (ui->translatorList->findItems(spec, Qt::MatchExactly).isEmpty()) {
+    auto *item = new QListWidgetItem(spec, ui->translatorList);
+    item->setCheckState(Qt::Checked);
+  }
+}
+
+void SettingsEditor::addOpenAIToList(const QString &model)
+{
+  const auto spec = QStringLiteral("openai:") + model;
+  if (ui->translatorList->findItems(spec, Qt::MatchExactly).isEmpty()) {
+    auto *item = new QListWidgetItem(spec, ui->translatorList);
+    item->setCheckState(Qt::Checked);
   }
 }

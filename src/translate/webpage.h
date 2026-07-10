@@ -22,6 +22,7 @@ public:
   void setTranslated(const QString &text);
   void setFailed(const QString &error);
   bool checkBusy();
+  bool isBusy() const { return isBusy_; }
   TaskPtr task() const;
 
   bool isLoadImages() const;
@@ -29,6 +30,8 @@ public:
 
 signals:
   void log(const QString &text);
+  void translated(const QString &text);
+  void failed(const QString &error);
 
 protected:
   void javaScriptConsoleMessage(JavaScriptConsoleMessageLevel level,

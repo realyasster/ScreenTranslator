@@ -47,6 +47,8 @@ void TrayIcon::updateSettings()
   if (!GlobalAction::update(captureLockedAction_,
                             settings_.captureLockedHotkey))
     failedActions << settings_.captureLockedHotkey;
+  if (!GlobalAction::update(subtitleAction_, settings_.subtitleHotkey))
+    failedActions << settings_.subtitleHotkey;
 
   if (!failedActions.isEmpty()) {
     showError(tr("Failed to register global shortcuts:\n%1"
@@ -61,7 +63,8 @@ void TrayIcon::blockActions(bool block)
   updateActions();
   const auto actions =
       QVector<QAction *>{captureAction_, repeatCaptureAction_, showLastAction_,
-                         clipboardAction_, captureLockedAction_};
+                         clipboardAction_, captureLockedAction_,
+                         subtitleAction_};
   for (const auto i : actions) {
     if (block) {
       GlobalAction::removeGlobal(i);
@@ -214,6 +217,11 @@ QMenu *TrayIcon::contextMenu()
     captureLockedAction_ = menu->addAction(tr("Capture saved areas"));
     connect(captureLockedAction_, &QAction::triggered,  //
             this, [this] { manager_.captureLocked(); });
+  }
+  {
+    subtitleAction_ = menu->addAction(tr("Toggle subtitle mode"));
+    connect(subtitleAction_, &QAction::triggered,  //
+            this, [this] { manager_.toggleSubtitleMode(); });
   }
 
   {

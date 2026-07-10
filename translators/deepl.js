@@ -1,23 +1,38 @@
 var lastText = '';
-var active = window.location.href !== "about:blank";
+var active = window.location.href !== 'about:blank';
+
+function findTarget() {
+  var sels = [
+    'd-textarea[data-testid=translator-target-input] p',
+    'd-textarea.lmt__target_textarea p',
+    'div#target-dummydiv'
+  ];
+  for (var i = 0; i < sels.length; ++i) {
+    var el = document.querySelector(sels[i]);
+    if (el) {
+      return (el.innerText || el.innerHTML || '').trim();
+    }
+  }
+  return '';
+}
+
+function findSource() {
+  var sels = [
+    'd-textarea[dl-test=translator-source-input] p',
+    'd-textarea[data-testid=translator-source-input] p',
+    'd-textarea.lmt__source_textarea p'
+  ];
+  for (var i = 0; i < sels.length; ++i) {
+    var el = document.querySelector(sels[i]);
+    if (el) return el;
+  }
+  return null;
+}
 
 function checkFinished() {
   if (!active) return;
-
-  let area = document.querySelector('div#target-dummydiv');
-  let text = area ? area.innerHTML.trim() : '';
-  if (area == null) {
-    area = document.querySelector('d-textarea.lmt__target_textarea p');
-    text = area ? area.innerText.trim() : '';
-  }
-  if (area == null) {
-    area = document.querySelector('d-textarea[data-testid=translator-target-input] p');
-    text = area ? area.innerText.trim() : '';
-  }
-
-  if (text === lastText || text === '')
-    return;
-
+  var text = findTarget();
+  if (text === lastText || text === '') return;
   console.log('translated text', text, 'old', lastText, 'size', text.length, lastText.length);
   lastText = text;
   active = false;
@@ -25,57 +40,53 @@ function checkFinished() {
 }
 
 function translate(text, from, to) {
-  console.log('start translate', text, from, to)
-
-  if (text.trim().length == 0) {
+  console.log('start translate', text, from, to);
+  if (text.trim().length === 0) {
     proxy.setTranslated('');
     return;
   }
 
-  from = from == 'zh-CN' ? 'zh' : from;
-  to = to == 'zh-CN' ? 'zh' : to;
+  from = (from === 'zh-CN' || from === 'zh-TW') ? 'zh' : from;
+  to = (to === 'zh-CN' || to === 'zh-TW') ? 'zh' : to;
 
-  let supported = ['ru', 'en', 'de', 'fr', 'es', 'pt', 'it', 'nl', 'pl', 'ja', 'zh',
-    'uk', 'bg', 'hu', 'el', 'da', 'id', 'lt', 'pt', 'ro', 'sk', 'sk', 'tr', 'fi', 'cs',
-    'sv', 'et']
-  if (supported.indexOf(from) == -1) {
+  var supported = ['ru','en','de','fr','es','pt','it','nl','pl','ja','zh',
+    'uk','bg','hu','el','da','id','lt','ro','sk','tr','fi','cs','sv','et','ko','ar'];
+  if (supported.indexOf(from) === -1) {
     proxy.setFailed('Source language not supported');
     return;
   }
-  if (supported.indexOf(to) == -1) {
+  if (supported.indexOf(to) === -1) {
     proxy.setFailed('Target language not supported');
     return;
   }
 
   active = true;
+  var single = text.replace(/(?:\r\n|\r|\n)/g, ' ');
+  var langs = from + '/' + to + '/';
 
-  var singleLineText = text.replace(/(?:\r\n|\r|\n)/g, ' ');
-
-  let langs = from + '/' + to + '/';
   if (window.location.href.indexOf('www.deepl.com/translator') !== -1
-    && window.location.href.indexOf(langs) !== -1) {
-
-    var input = document.querySelector('d-textarea[dl-test=translator-source-input] p');
-    if (input == null)
-      input = document.querySelector('d-textarea.lmt__source_textarea p');
-    if (input == null)
-      input = document.querySelector('d-textarea[data-testid=translator-source-input] p');
-    if (input.innerText == singleLineText) {
+      && window.location.href.indexOf(langs) !== -1) {
+    var input = findSource();
+    if (!input) {
+      proxy.setFailed('Source input not found');
+      return;
+    }
+    if (input.innerText === single) {
       console.log('using cached result');
       lastText = '';
       return;
     }
-    input.innerText = singleLineText;
-    if (areaCopy = document.querySelector('div#source-dummydiv'))
-      areaCopy.innerHTML = singleLineText;
+    input.innerText = single;
+    var dup = document.querySelector('div#source-dummydiv');
+    if (dup) dup.innerHTML = single;
     setTimeout(function () {
-      input.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+      input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
     }, 300);
     return;
   }
 
-  let url = 'https://www.deepl.com/translator#' + langs + encodeURIComponent(singleLineText);
-  console.log("setting url", url);
+  var url = 'https://www.deepl.com/translator#' + langs + encodeURIComponent(single);
+  console.log('setting url', url);
   window.location = url;
 }
 

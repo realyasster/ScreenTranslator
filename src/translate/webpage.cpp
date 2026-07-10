@@ -150,7 +150,7 @@ void WebPage::setTranslated(const QString &text)
   SOFT_ASSERT(task_, return )
   task_->translated = text;
   task_->usedTranslator = scriptName_;
-  translator_.finish(task_);
+  emit translated(text);
 }
 
 void WebPage::setFailed(const QString &error)
@@ -161,6 +161,7 @@ void WebPage::setFailed(const QString &error)
   isBusy_ = false;
 
   addErrorToTask(error);
+  emit failed(error);
 }
 
 TaskPtr WebPage::task() const

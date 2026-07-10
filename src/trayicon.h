@@ -45,6 +45,7 @@ private:
   QAction *repeatCaptureAction_{nullptr};
   QAction *showLastAction_{nullptr};
   QAction *clipboardAction_{nullptr};
+  QAction *subtitleAction_{nullptr};
   QAction *settingsAction_{nullptr};
 
   std::unique_ptr<QTimer> iconUpdateTimer_;

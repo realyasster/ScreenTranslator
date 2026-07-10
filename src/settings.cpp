@@ -22,6 +22,8 @@ const QString qs_repeatCaptureHotkey = "repeatCaptureHotkey";
 const QString qs_repeatHotkey = "repeatHotkey";
 const QString qs_clipboardHotkey = "clipboardHotkey";
 const QString qs_captureLockedHotkey = "captureLockedHotkey";
+const QString qs_subtitleHotkey = "subtitleHotkey";
+const QString qs_subtitleIntervalMs = "subtitleIntervalMs";
 const QString qs_resultShowType = "resultShowType";
 const QString qs_proxyType = "proxyType";
 const QString qs_proxyHostName = "proxyHostName";
@@ -47,6 +49,12 @@ const QString qs_ignoreSslErrors = "ignoreSslErrors";
 const QString qs_translationLanguage = "translation_language";
 const QString qs_translationTimeout = "translation_timeout";
 const QString qs_translators = "translators";
+const QString qs_ollamaUrl = "ollamaUrl";
+const QString qs_ollamaModel = "ollamaModel";
+const QString qs_openaiEndpoint = "openaiEndpoint";
+const QString qs_openaiModel = "openaiModel";
+const QString qs_openaiKey = "openaiKey";
+const QString qs_openaiSaveKey = "openaiSaveKey";
 
 const QString qs_representationGroup = "Representation";
 const QString qs_fontFamily = "fontFamily";
@@ -153,6 +161,8 @@ void Settings::save() const
   settings.setValue(qs_repeatHotkey, showLastHotkey);
   settings.setValue(qs_clipboardHotkey, clipboardHotkey);
   settings.setValue(qs_captureLockedHotkey, captureLockedHotkey);
+  settings.setValue(qs_subtitleHotkey, subtitleHotkey);
+  settings.setValue(qs_subtitleIntervalMs, subtitleIntervalMs);
 
   settings.setValue(qs_showMessageOnStart, showMessageOnStart);
 
@@ -191,6 +201,17 @@ void Settings::save() const
   settings.setValue(qs_translationLanguage, targetLanguage);
   settings.setValue(qs_translationTimeout, int(translationTimeout.count()));
   settings.setValue(qs_translators, translators);
+
+  settings.setValue(qs_ollamaUrl, ollamaUrl);
+  settings.setValue(qs_ollamaModel, ollamaModel);
+  settings.setValue(qs_openaiEndpoint, openaiEndpoint);
+  settings.setValue(qs_openaiModel, openaiModel);
+  settings.setValue(qs_openaiSaveKey, openaiSaveKey);
+  if (openaiSaveKey) {
+    settings.setValue(qs_openaiKey, shuffle(openaiKey));
+  } else {
+    settings.remove(qs_openaiKey);
+  }
 
   settings.endGroup();
 
@@ -236,6 +257,9 @@ void Settings::load()
       settings.value(qs_clipboardHotkey, clipboardHotkey).toString();
   captureLockedHotkey =
       settings.value(qs_captureLockedHotkey, captureLockedHotkey).toString();
+  subtitleHotkey = settings.value(qs_subtitleHotkey, subtitleHotkey).toString();
+  subtitleIntervalMs =
+      settings.value(qs_subtitleIntervalMs, subtitleIntervalMs).toInt();
 
   showMessageOnStart =
       settings.value(qs_showMessageOnStart, showMessageOnStart).toBool();
@@ -288,6 +312,13 @@ void Settings::load()
   translators = settings.value(qs_translators, translators).toStringList();
   if (translators.size() == 1 && translators.first().contains('|'))  // legacy
     translators = translators.first().split('|');
+
+  ollamaUrl = settings.value(qs_ollamaUrl, ollamaUrl).toString();
+  ollamaModel = settings.value(qs_ollamaModel, ollamaModel).toString();
+  openaiEndpoint = settings.value(qs_openaiEndpoint, openaiEndpoint).toString();
+  openaiModel = settings.value(qs_openaiModel, openaiModel).toString();
+  openaiSaveKey = settings.value(qs_openaiSaveKey, openaiSaveKey).toBool();
+  openaiKey = shuffle(settings.value(qs_openaiKey).toString());
 
   settings.endGroup();
 

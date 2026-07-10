@@ -35,6 +35,8 @@ public:
   QString showLastHotkey{"Ctrl+Alt+X"};
   QString clipboardHotkey{"Ctrl+Alt+C"};
   QString captureLockedHotkey{"Ctrl+Alt+Q"};
+  QString subtitleHotkey{"Ctrl+Alt+V"};
+  int subtitleIntervalMs{500};
 
   bool showMessageOnStart{true};
   bool runAtSystemStart{false};
@@ -65,6 +67,13 @@ public:
   std::chrono::seconds translationTimeout{15};
   QString translatorsPath;
   QStringList translators{"google.js"};
+
+  QString ollamaUrl{QStringLiteral("http://localhost:11434")};
+  QString ollamaModel{QStringLiteral("llama3.1")};
+  QString openaiEndpoint{QStringLiteral("https://api.openai.com")};
+  QString openaiModel{QStringLiteral("gpt-4o-mini")};
+  QString openaiKey;
+  bool openaiSaveKey{false};
 
   ResultMode resultShowType{ResultMode::Widget};  // dialog
   QString fontFamily;

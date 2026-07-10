@@ -6,6 +6,7 @@
 #include "representer.h"
 #include "settingseditor.h"
 #include "settingsvalidator.h"
+#include "subtitlemode.h"
 #include "task.h"
 #include "translator.h"
 #include "trayicon.h"
@@ -51,6 +52,7 @@ Manager::Manager()
   corrector_ = std::make_unique<Corrector>(*this, *settings_);
   representer_ =
       std::make_unique<Representer>(*this, *tray_, *settings_, *models_);
+  subtitle_ = std::make_unique<SubtitleMode>(*this, *settings_);
   qRegisterMetaType<TaskPtr>();
 
   settings_->load();
@@ -334,6 +336,15 @@ void Manager::captureLocked()
   }
 
   capturer_->captureLocked();
+}
+
+void Manager::toggleSubtitleMode()
+{
+  SOFT_ASSERT(subtitle_, return );
+  if (subtitle_->isActive())
+    subtitle_->stop();
+  else
+    subtitle_->start();
 }
 
 void Manager::settings()

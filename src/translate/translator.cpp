@@ -1,10 +1,13 @@
 #include "translator.h"
+
 #include "debug.h"
 #include "languagecodes.h"
 #include "manager.h"
+#include "ollamabackend.h"
+#include "openaibackend.h"
 #include "settings.h"
 #include "task.h"
-#include "webpage.h"
+#include "webtranslatorbackend.h"
 #include "widgetstate.h"
 
 #include <QBoxLayout>
@@ -15,12 +18,15 @@
 #include <QSplitter>
 #include <QTabWidget>
 #include <QTextEdit>
+#include <QTimer>
 #include <QToolBar>
 
 #include <unordered_set>
 
-static std::map<QString, QString> loadScripts(const QString &dir,
-                                              const QStringList &scriptNames)
+namespace
+{
+std::map<QString, QString> loadScripts(const QString &dir,
+                                       const QStringList &scriptNames)
 {
   std::map<QString, QString> result;
   for (const auto &name : scriptNames) {
@@ -34,13 +40,25 @@ static std::map<QString, QString> loadScripts(const QString &dir,
   return result;
 }
 
+bool isWebScript(const QString &spec)
+{
+  return spec.endsWith(QStringLiteral(".js"), Qt::CaseInsensitive);
+}
+
+bool isOllamaSpec(const QString &spec)
+{
+  return spec.startsWith(QStringLiteral("ollama:"), Qt::CaseInsensitive);
+}
+
+bool isOpenAISpec(const QString &spec)
+{
+  return spec.startsWith(QStringLiteral("openai:"), Qt::CaseInsensitive);
+}
+}  // namespace
+
 Translator::Translator(Manager &manager, const Settings &settings)
   : manager_(manager)
   , settings_(settings)
-  , view_(nullptr)
-  , url_(new QLineEdit(this))
-  , loadImages_(
-        new QAction(QIcon(":/icons/loadImages.png"), tr("Load images"), this))
   , showDebugAction_(new QAction(QIcon(":/icons/debug.png"), tr("Debug"), this))
   , tabs_(new QTabWidget(this))
 {
@@ -57,42 +75,17 @@ Translator::Translator(Manager &manager, const Settings &settings)
   setObjectName("Translator");
   setWindowTitle(tr("Translator"));
 
-  view_ = new QWebEngineView(this);
-
-  auto detailsFrame = new QWidget(this);
-  {
-    auto toolBar = new QToolBar(this);
-    toolBar->addWidget(new QLabel(tr("Url:"), this));
-    toolBar->addWidget(url_);
-    toolBar->addAction(loadImages_);
-    toolBar->addAction(showDebugAction_);
-
-    auto layout = new QVBoxLayout(detailsFrame);
-    layout->addWidget(toolBar);
-    layout->addWidget(tabs_);
-  }
-
-  auto splitter = new QSplitter(Qt::Vertical, this);
-  splitter->addWidget(view_);
-  splitter->addWidget(detailsFrame);
+  auto toolBar = new QToolBar(this);
+  toolBar->addAction(showDebugAction_);
 
   auto layout = new QVBoxLayout(this);
-  layout->addWidget(splitter);
+  layout->addWidget(toolBar);
+  layout->addWidget(tabs_);
 
   startTimer(1000);
 
-  url_->setReadOnly(true);
-
-  loadImages_->setCheckable(true);
-  connect(loadImages_, &QAction::toggled,  //
-          this, &Translator::setPageLoadImages);
   connect(showDebugAction_, &QAction::triggered,  //
           this, &Translator::showDebugView);
-
-  connect(tabs_, &QTabWidget::currentChanged,  //
-          this, &Translator::udpateCurrentPage);
-
-  view_->setMinimumSize(200, 200);
 
   new service::WidgetState(this);
 }
@@ -115,11 +108,6 @@ void Translator::translate(const TaskPtr &task)
 
 void Translator::updateSettings()
 {
-  view_->setPage(nullptr);
-  pages_.clear();
-  queue_.clear();
-  url_->clear();
-
   tabs_->blockSignals(true);
   for (auto i = 0, end = tabs_->count(); i < end; ++i) {
     auto tab = tabs_->widget(0);
@@ -128,57 +116,132 @@ void Translator::updateSettings()
   }
   tabs_->blockSignals(false);
 
+  backends_.clear();
+  tabsByName_.clear();
+
+  rebuildBackends();
+}
+
+void Translator::rebuildBackends()
+{
   if (settings_.translators.empty())
     return;
 
-  const auto loaded =
-      loadScripts(settings_.translatorsPath, settings_.translators);
-  if (loaded.empty()) {
+  QStringList webScripts;
+  for (const auto &spec : settings_.translators) {
+    if (isWebScript(spec))
+      webScripts << spec;
+  }
+
+  const auto loaded = loadScripts(settings_.translatorsPath, webScripts);
+  if (webScripts.isEmpty() && settings_.translators.isEmpty()) {
+    return;
+  }
+  if (!webScripts.isEmpty() && loaded.empty()) {
     manager_.fatalError(
         tr("No translators loaded from\n%1\n(%2)")
-            .arg(settings_.translatorsPath, settings_.translators.join(", ")));
+            .arg(settings_.translatorsPath, webScripts.join(", ")));
     return;
   }
 
-  for (const auto &script : loaded) createPage(script.first, script.second);
+  for (const auto &spec : settings_.translators) {
+    if (isWebScript(spec)) {
+      const auto it = loaded.find(spec);
+      if (it == loaded.end())
+        continue;
+      auto backend = createWebBackend(spec, it->second);
+      WebTranslatorBackend *raw = backend.get();
+      backends_.emplace(spec, std::move(backend));
+      createWebTab(raw);
+    } else if (isOllamaSpec(spec)) {
+      const auto model = spec.mid(7);
+      auto backend = std::make_unique<OllamaBackend>(
+          model, settings_.ollamaUrl.isEmpty()
+                     ? QStringLiteral("http://localhost:11434")
+                     : settings_.ollamaUrl);
+      auto *raw = backend.get();
+      backends_.emplace(spec, std::move(backend));
+      createLogTab(raw);
+    } else if (isOpenAISpec(spec)) {
+      const auto model = spec.mid(7);
+      auto backend = std::make_unique<OpenAIBackend>(
+          model,
+          settings_.openaiEndpoint.isEmpty()
+              ? QStringLiteral("https://api.openai.com")
+              : settings_.openaiEndpoint,
+          settings_.openaiKey);
+      auto *raw = backend.get();
+      backends_.emplace(spec, std::move(backend));
+      createLogTab(raw);
+    }
+  }
 }
 
-void Translator::createPage(const QString &scriptName,
-                            const QString &scriptText)
+std::unique_ptr<WebTranslatorBackend>
+Translator::createWebBackend(const QString &scriptName,
+                             const QString &scriptText)
 {
-  pages_.erase(scriptName);
-  const auto pageIt = pages_.emplace(
-      scriptName, std::make_unique<WebPage>(*this, scriptText, scriptName));
-  SOFT_ASSERT(pageIt.second, return );
+  auto backend =
+      std::make_unique<WebTranslatorBackend>(*this, scriptName, scriptText);
+  auto *raw = backend.get();
 
-  const auto &page = pageIt.first->second;
+  raw->setIgnoreSslErrors(settings_.ignoreSslErrors);
+  raw->setTimeout(settings_.translationTimeout);
+
+  connect(raw, &ITranslatorBackend::log, this,
+          [this, name = scriptName](const QString &m) {
+            onBackendLog(name, m);
+          });
+  connect(raw, &ITranslatorBackend::translated, this,
+          [this, name = scriptName](const QString &t) {
+            onBackendTranslated(name, t);
+          });
+  connect(raw, &ITranslatorBackend::failed, this,
+          [this, name = scriptName](const QString &e) {
+            onBackendFailed(name, e);
+          });
+
+  return backend;
+}
+
+void Translator::createWebTab(WebTranslatorBackend *backend)
+{
+  auto *page = backend->page();
   page->setIgnoreSslErrors(settings_.ignoreSslErrors);
   page->setTimeout(settings_.translationTimeout);
   page->setVisible(true);
-  connect(page.get(), &WebPage::visibleChanged,  //
-          page.get(), [page = page.get()](bool on) {
-            if (!on)
-              page->setVisible(true);
-          });
 
   auto log = new QTextEdit(tabs_);
-  tabs_->addTab(log, scriptName);
-
-  connect(page.get(), &WebPage::log,  //
-          log, &QTextEdit::append);
-  connect(page.get(), &WebPage::urlChanged,  //
-          this, &Translator::updateUrl);
-  connect(page.get(), &WebPage::renderProcessTerminated,  //
-          this,
-          [this, scriptName,
-           scriptText](WebPage::RenderProcessTerminationStatus status) {
-            if (status != WebPage::NormalTerminationStatus)
-              createPage(scriptName, scriptText);
-          });
-
-  SOFT_ASSERT(log->document(), return )
+  tabs_->addTab(log, backend->name());
   log->document()->setMaximumBlockCount(1000);
-  LTRACE() << "Created page" << LARG(scriptName);
+
+  connect(page, &WebPage::visibleChanged, page, [page](bool on) {
+    if (!on)
+      page->setVisible(true);
+  });
+  connect(page, &WebPage::log, log, &QTextEdit::append);
+
+  tabsByName_.emplace(backend->name(), Tab{log, backend});
+}
+
+void Translator::createLogTab(ITranslatorBackend *backend)
+{
+  auto log = new QTextEdit(tabs_);
+  tabs_->addTab(log, backend->displayName());
+  log->document()->setMaximumBlockCount(1000);
+  tabsByName_.emplace(backend->name(), Tab{log, backend});
+
+  connect(backend, &ITranslatorBackend::log, log, &QTextEdit::append);
+}
+
+void Translator::setBusyTab(ITranslatorBackend *backend)
+{
+  const auto it = tabsByName_.find(backend->name());
+  if (it == tabsByName_.end())
+    return;
+  const auto idx = tabs_->indexOf(it->second.log);
+  if (idx >= 0)
+    tabs_->setCurrentIndex(idx);
 }
 
 void Translator::showDebugView()
@@ -191,46 +254,39 @@ void Translator::showDebugView()
   debugView_->activateWindow();
 }
 
-WebPage *Translator::currentPage() const
+ITranslatorBackend *Translator::findBackend(const QString &name)
 {
-  const auto index = tabs_->currentIndex();
-  if (index == -1)
-    return nullptr;
-
-  const auto name = tabs_->tabText(index);
-  SOFT_ASSERT(pages_.count(name), return nullptr);
-
-  return pages_.at(name).get();
+  const auto it = backends_.find(name);
+  return it != backends_.end() ? it->second.get() : nullptr;
 }
 
-void Translator::udpateCurrentPage()
+void Translator::onBackendTranslated(const QString &name, const QString &text)
 {
-  auto page = currentPage();
-  if (!page)
+  auto *backend = findBackend(name);
+  if (!backend || !backend->isBusy())
     return;
-
-  view_->setPage(page);
-  QSignalBlocker blocker(loadImages_);
-  loadImages_->setChecked(page->isLoadImages());
-  url_->setText(page->url().toString());
+  auto task = backend->task();
+  if (!task)
+    return;
+  task->translated = text;
+  task->usedTranslator = name;
+  finish(task);
 }
 
-void Translator::updateUrl()
+void Translator::onBackendFailed(const QString &name, const QString &error)
 {
-  auto page = currentPage();
-  if (!page)
+  auto *backend = findBackend(name);
+  if (!backend)
     return;
-
-  url_->setText(page->url().toString());
+  auto task = backend->task();
+  if (task)
+    task->translatorErrors.append(QStringLiteral("%1: %2").arg(name, error));
+  backend->cancel();
 }
 
-void Translator::setPageLoadImages(bool isOn)
+void Translator::onBackendLog(const QString & /*name*/, const QString &message)
 {
-  auto page = currentPage();
-  if (!page)
-    return;
-
-  page->setLoadImages(isOn);
+  LTRACE() << "translator:" << message;
 }
 
 void Translator::processQueue()
@@ -238,50 +294,38 @@ void Translator::processQueue()
   if (queue_.empty())
     return;
 
-  std::unordered_set<QString> idlePages;
-  std::unordered_set<Task *> busyTasks;
-
-  auto oldPage = view_->page();
-  for (auto &i : pages_) {
-    if (!i.second->checkBusy()) {
-      idlePages.insert(i.first);
-    } else {
-      busyTasks.insert(i.second->task().get());
-      view_->setPage(i.second.get());
-      view_->update();
-    }
+  std::unordered_set<QString> idleNames;
+  for (const auto &[name, backend] : backends_) {
+    if (!backend->isBusy())
+      idleNames.insert(name);
   }
 
-  if (oldPage != view_->page())
-    view_->setPage(oldPage);
-
-  if (idlePages.empty())
+  if (idleNames.empty())
     return;
 
   std::vector<TaskPtr> finishedTasks;
   for (const auto &task : queue_) {
-    if (idlePages.empty())
+    if (idleNames.empty())
       break;
-
-    if (busyTasks.count(task.get()))
-      continue;
 
     if (task->translators.isEmpty()) {
       task->error = tr("All translators failed\n%1")
-                        .arg(task->translatorErrors.join("\n"));
+                        .arg(task->translatorErrors.join(QStringLiteral("\n")));
       finishedTasks.push_back(task);
       continue;
     }
 
-    for (auto &translator : task->translators) {
-      if (!idlePages.count(translator))
+    for (const auto &spec : task->translators) {
+      if (!idleNames.count(spec))
         continue;
-
-      SOFT_ASSERT(pages_.count(translator), continue);
-      pages_[translator]->start(task);
-      task->translators.removeOne(translator);
-      idlePages.erase(translator);
-      LTRACE() << "Started translation at" << translator << task;
+      auto *backend = findBackend(spec);
+      if (!backend)
+        continue;
+      backend->start(task);
+      task->translators.removeOne(spec);
+      idleNames.erase(spec);
+      setBusyTab(backend);
+      LTRACE() << "Started translation at" << spec << task;
       break;
     }
   }
@@ -294,7 +338,8 @@ void Translator::processQueue()
 void Translator::markTranslated(const TaskPtr &task)
 {
   manager_.translated(task);
-  queue_.erase(std::remove(queue_.begin(), queue_.end(), task), queue_.end());
+  queue_.erase(std::remove(queue_.begin(), queue_.end(), task),
+               queue_.end());
 }
 
 void Translator::finish(const TaskPtr &task)

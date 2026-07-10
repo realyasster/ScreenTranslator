@@ -37,6 +37,7 @@ HEADERS += \
   src/capture/captureareaeditor.h \
   src/capture/captureareaselector.h \
   src/capture/capturer.h \
+  src/capture/subtitlemode.h \
   src/commonmodels.h \
   src/correct/corrector.h \
   src/correct/correctorworker.h \
@@ -67,6 +68,11 @@ HEADERS += \
   src/translate/translator.h \
   src/translate/webpage.h \
   src/translate/webpageproxy.h \
+  src/translate/itranslatorbackend.h \
+  src/translate/webtranslatorbackend.h \
+  src/translate/httptranslatorbackend.h \
+  src/translate/ollamabackend.h \
+  src/translate/openaibackend.h \
   src/trayicon.h
 
 SOURCES += \
@@ -74,6 +80,7 @@ SOURCES += \
   src/capture/captureareaeditor.cpp \
   src/capture/captureareaselector.cpp \
   src/capture/capturer.cpp \
+  src/capture/subtitlemode.cpp \
   src/commonmodels.cpp \
   src/correct/corrector.cpp \
   src/correct/correctorworker.cpp \
@@ -103,6 +110,10 @@ SOURCES += \
   src/translate/translator.cpp \
   src/translate/webpage.cpp \
   src/translate/webpageproxy.cpp \
+  src/translate/webtranslatorbackend.cpp \
+  src/translate/httptranslatorbackend.cpp \
+  src/translate/ollamabackend.cpp \
+  src/translate/openaibackend.cpp \
   src/trayicon.cpp
 
 RESOURCES += \

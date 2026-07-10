@@ -1,6 +1,10 @@
 #pragma once
 
+#include <QCheckBox>
+#include <QComboBox>
 #include <QDialog>
+#include <QLineEdit>
+#include <QPushButton>
 
 #include "commonmodels.h"
 #include "settings.h"
@@ -35,7 +39,21 @@ private:
   void updateModels();
   void validateSettings();
 
+  void setupAiTranslation();
+  void refreshOllamaModels();
+  void addOllamaToList(const QString &model);
+  void addOpenAIToList(const QString &model);
+
   Ui::SettingsEditor *ui;
+  QLineEdit *ollamaUrlEdit_{nullptr};
+  QComboBox *ollamaModelCombo_{nullptr};
+  QPushButton *ollamaRefreshBtn_{nullptr};
+  QLineEdit *openaiEndpointEdit_{nullptr};
+  QLineEdit *openaiModelEdit_{nullptr};
+  QLineEdit *openaiKeyEdit_{nullptr};
+  QCheckBox *openaiSaveKeyCheck_{nullptr};
+  QPushButton *openaiAddBtn_{nullptr};
+
   Manager &manager_;
   update::Updater &updater_;
   CommonModels models_;
